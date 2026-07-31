@@ -231,7 +231,7 @@ uintptr_t litehook_get_dsc_slide(void)
 	return slide;
 }
 
-bool is_pointer_to_instructions(const struct mach_header_64 *header, uintptr_t ptr)
+bool is_pointer_to_instructions(const mach_header_u *header, uintptr_t ptr)
 {
 	const struct load_command *lc =
 		(const struct load_command *)((const uint8_t *)header + sizeof(struct mach_header_64));
@@ -259,12 +259,19 @@ bool is_pointer_to_instructions(const struct mach_header_64 *header, uintptr_t p
 	return false;
 }
 
-void *_litehook_sign_if_executable(void *ptr)
+void *_litehook_sign_if_executable(void *ptr, const mach_header_u *optHeader)
 {
-	Dl_info info;
-	if (!dladdr(ptr, &info)) return ptr;
-	const struct mach_header_64 *header = (const struct mach_header_64 *)info.dli_fbase;
-	if (!is_pointer_to_instructions(header, (uintptr_t)ptr)) return ptr;
+	const mach_header_u *header = optHeader;
+	if (!header) {
+		Dl_info info;
+		if (!dladdr(ptr, &info)) { 
+			return ptr;
+		}
+		header = (const mach_header_u *)info.dli_fbase;
+	}
+	if (!is_pointer_to_instructions(header, (uintptr_t)ptr)) {
+		return ptr;
+	}
 	return ptrauth_sign_unauthenticated(ptr, ptrauth_key_function_pointer, 0);
 }
 
@@ -323,7 +330,7 @@ void *litehook_find_symbol(const mach_header_u *header, const char *symbolName)
 		}
 
 		if (!strcmp(curSymbolName, symbolName)) {
-			return _litehook_sign_if_executable((void *)((uintptr_t)header + symEntry->n_value));
+			return _litehook_sign_if_executable((void *)((uintptr_t)header + symEntry->n_value), header);
 		}
 	}
 
@@ -407,7 +414,7 @@ void *litehook_find_dsc_symbol(const char *imagePath, const char *symbolName)
 		char curSymbolName[len+1];
 		if (fread(curSymbolName, len+1, 1, symbolDSC) != 1) goto end;
 		if (!strcmp(curSymbolName, symbolName)) {
-			symbol = _litehook_sign_if_executable((void *)(litehook_get_dsc_slide() + n.n_value));
+			symbol = _litehook_sign_if_executable((void *)(litehook_get_dsc_slide() + n.n_value), NULL);
 		}
 	}
 
